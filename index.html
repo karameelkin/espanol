@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Español" />
+  <title>Español</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- HOME -->
+    <section id="home" class="screen">
+      <header class="home-head">
+        <h1>Español</h1>
+        <p class="subtitle">1000 самых частых слов · кастильское произношение</p>
+      </header>
+
+      <div class="stats">
+        <div class="stat"><span id="stat-due" class="num">0</span><span class="lbl">повторить</span></div>
+        <div class="stat"><span id="stat-new" class="num">0</span><span class="lbl">новых</span></div>
+        <div class="stat"><span id="stat-learned" class="num">0</span><span class="lbl">изучено</span></div>
+      </div>
+
+      <button id="start-btn" class="primary big">Учить</button>
+
+      <div class="home-foot">
+        <button id="download-btn" class="ghost">Скачать всё для офлайна</button>
+        <div id="download-bar" class="progress hidden"><div id="download-fill"></div></div>
+        <button id="settings-btn" class="link">Настройки</button>
+      </div>
+    </section>
+
+    <!-- STUDY -->
+    <section id="study" class="screen hidden">
+      <header class="study-head">
+        <button id="study-back" class="icon-btn" aria-label="Назад">‹</button>
+        <div id="study-progress" class="study-progress"></div>
+        <div class="spacer"></div>
+      </header>
+
+      <div id="card" class="card">
+        <div class="card-top">
+          <div id="word" class="word"></div>
+          <button id="replay-word" class="icon-btn audio" aria-label="Слушать слово">♪</button>
+        </div>
+
+        <div id="answer" class="answer hidden">
+          <div id="meaning" class="meaning"></div>
+          <div class="divider"></div>
+          <div class="sentence-row">
+            <p id="sentence" class="sentence"></p>
+            <button id="replay-sentence" class="icon-btn audio" aria-label="Слушать фразу">♪</button>
+          </div>
+          <p id="sentence-en" class="sentence-en"></p>
+        </div>
+      </div>
+
+      <div id="controls" class="controls">
+        <button id="reveal-btn" class="primary big">Показать</button>
+        <div id="grades" class="grades hidden">
+          <button class="grade again" data-g="1"><span class="g-label">Забыл</span><span class="g-int"></span></button>
+          <button class="grade hard" data-g="2"><span class="g-label">Трудно</span><span class="g-int"></span></button>
+          <button class="grade good" data-g="3"><span class="g-label">Норм</span><span class="g-int"></span></button>
+          <button class="grade easy" data-g="4"><span class="g-label">Легко</span><span class="g-int"></span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- DONE -->
+    <section id="done" class="screen hidden">
+      <div class="done-inner">
+        <div class="done-mark">✓</div>
+        <h2>На сегодня всё</h2>
+        <p id="done-sub" class="subtitle"></p>
+        <button id="done-home" class="primary">На главную</button>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="settings" class="screen hidden">
+      <header class="study-head">
+        <button id="settings-back" class="icon-btn" aria-label="Назад">‹</button>
+        <div class="study-progress">Настройки</div>
+        <div class="spacer"></div>
+      </header>
+      <div class="settings-body">
+        <label class="field">
+          <span>Новых слов в день</span>
+          <input id="set-new" type="number" min="0" max="100" step="5" />
+        </label>
+        <label class="field">
+          <span>Целевое запоминание, %</span>
+          <input id="set-ret" type="number" min="70" max="97" step="1" />
+        </label>
+        <p class="hint">Выше процент — чаще повторения и лучше память, но больше карточек в день.</p>
+        <button id="reset-btn" class="danger">Сбросить весь прогресс</button>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
