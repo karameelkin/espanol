@@ -47,27 +47,41 @@
       <div id="card" class="card">
         <div class="card-top">
           <div id="word" class="word"></div>
-          <button id="replay-word" class="icon-btn audio" aria-label="Слушать слово">♪</button>
+          <div class="audio-actions">
+            <button id="replay-word" class="icon-btn audio" aria-label="Слушать слово">♪</button>
+            <button id="slow-word" class="icon-btn audio slow" aria-label="Слушать слово медленно">½×</button>
+          </div>
         </div>
+        <div id="voice-tag" class="voice-tag hidden"></div>
 
         <div id="answer" class="answer hidden">
           <div id="meaning" class="meaning"></div>
           <div class="divider"></div>
           <div class="sentence-row">
             <p id="sentence" class="sentence"></p>
-            <button id="replay-sentence" class="icon-btn audio" aria-label="Слушать фразу">♪</button>
+            <div class="audio-actions">
+              <button id="replay-sentence" class="icon-btn audio" aria-label="Слушать фразу">♪</button>
+              <button id="slow-sentence" class="icon-btn audio slow" aria-label="Слушать фразу медленно">½×</button>
+            </div>
           </div>
           <p id="sentence-en" class="sentence-en"></p>
         </div>
       </div>
 
+      <div id="stamps" class="stamps" aria-hidden="true">
+        <div class="stamp st-again"><span>Забыл</span><em id="stamp-i-1"></em></div>
+        <div class="stamp st-good"><span>Помню</span><em id="stamp-i-3"></em></div>
+        <div class="stamp st-easy"><span>Уже знаю</span><em id="stamp-i-4"></em></div>
+      </div>
+
       <div id="controls" class="controls">
         <button id="reveal-btn" class="primary big">Показать</button>
         <div id="grades" class="grades hidden">
-          <button class="grade again" data-g="1"><span class="g-label">Забыл</span><span class="g-int"></span></button>
-          <button class="grade hard" data-g="2"><span class="g-label">Трудно</span><span class="g-int"></span></button>
-          <button class="grade good" data-g="3"><span class="g-label">Норм</span><span class="g-int"></span></button>
-          <button class="grade easy" data-g="4"><span class="g-label">Легко</span><span class="g-int"></span></button>
+          <div class="grade-row">
+            <button class="grade again" data-g="1"><span class="g-label">← Забыл</span><span class="g-int"></span></button>
+            <button class="grade good" data-g="3"><span class="g-label">Помню →</span><span class="g-int"></span></button>
+          </div>
+          <button class="grade easy-link" data-g="4"><span class="g-label">↑ Уже знаю</span><span class="g-int"></span></button>
         </div>
       </div>
     </section>
@@ -99,6 +113,13 @@
           <input id="set-ret" type="number" min="70" max="97" step="1" />
         </label>
         <p class="hint">Выше процент — чаще повторения и лучше память, но больше карточек в день.</p>
+
+        <div id="voice-info" class="field-block hidden">
+          <span>Произношение</span>
+          <p class="hint">Колода поделена поровну между записью и кастильскими голосами устройства — ухо не привыкает к одному, а c/z везде звучат как английское «th». Одно слово всегда звучит одним и тем же голосом.</p>
+          <p id="voice-list" class="hint"></p>
+        </div>
+
         <button id="reset-btn" class="danger">Сбросить весь прогресс</button>
       </div>
     </section>

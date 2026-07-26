@@ -1,11 +1,14 @@
 import { createFSRS, AGAIN, HARD, GOOD, EASY } from './fsrs.js';
 import { db } from './db.js';
 import { createAudioPlayer } from './audio.js';
+import { createSpeaker } from './speak.js';
 
 const AUDIO_CACHE = 'span-audio-v1';
+const SLOW = 0.6; // playback rate for the "slower" button
 
 const $ = (id) => document.getElementById(id);
 const player = createAudioPlayer('audio/');
+const speaker = createSpeaker();
 
 let deck = [];              // [{i,w,m,s,se,wa,sa}]
 let byId = new Map();       // i -> card content
@@ -34,11 +37,85 @@ function show(screen) {
   $(screen).classList.remove('hidden');
 }
 
+// ---------- audio: the deck is split evenly between the voices in rotation ----------
+// The pool is the recorded clip plus every good es-ES synth voice on the device, so
+// the ear hears variety while c/z stay Castilian [θ] everywhere. Each card is bound
+// to one voice for good, and the voices get equal shares: we deal them round-robin
+// over a deterministically shuffled card order, so the split stays even (±1 card)
+// without voices alternating predictably by card number.
+let currentAudio = { kind: 'record' }; // resolved per card in showCurrent()
+let voiceSlots = new Map();            // card.i -> index in the pool
+let slotsFor = 0;                      // pool size those slots were dealt for
+
+function sentenceText(card) {
+  return (card?.s || []).map((p) => p.t).join('').replace(/\s+/g, ' ').trim();
+}
+function audioPool() {
+  // 'record' is index 0; then each Castilian voice safe to rotate.
+  return ['record', ...(speaker.available ? speaker.mixVoices() : [])];
+}
+// Deterministic 0..1 hash: the same shuffle on every device and every reload.
+function hash01(n) {
+  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+}
+function dealVoiceSlots(size) {
+  voiceSlots = new Map();
+  slotsFor = size;
+  if (size < 2 || !deck.length) return;
+  const order = deck.map((c) => c.i).sort((a, b) => hash01(a) - hash01(b));
+  order.forEach((i, n) => voiceSlots.set(i, n % size));
+}
+function assignAudio(card) {
+  const pool = audioPool();
+  if (pool.length !== slotsFor) dealVoiceSlots(pool.length);
+  const pick = pool[voiceSlots.get(card.i) ?? 0];
+  currentAudio = !pick || pick === 'record' ? { kind: 'record' } : { kind: 'tts', voice: pick };
+}
+function voiceLabel() {
+  if (currentAudio.kind === 'record') return 'запись';
+  return currentAudio.voice?.name || 'синтез';
+}
+// Play word/sentence for the current card in its assigned voice; rate < 1 slows it.
+// Falls back to the recording if synthesis can't speak this time.
+async function playWord(rate = 1) {
+  const card = queue[pos];
+  if (!card) return;
+  if (currentAudio.kind === 'tts') {
+    player.stop();
+    const ok = await speaker.speak(card.w, { rate, voice: currentAudio.voice });
+    if (ok) return;
+  }
+  speaker.stop();
+  player.play(card.wa, rate);
+}
+async function playSentence(rate = 1) {
+  const card = queue[pos];
+  if (!card) return;
+  if (currentAudio.kind === 'tts') {
+    player.stop();
+    const ok = await speaker.speak(sentenceText(card), { rate, voice: currentAudio.voice });
+    if (ok) return;
+  }
+  speaker.stop();
+  player.play(card.sa, rate);
+}
+function updateVoiceTag() {
+  const tag = $('voice-tag');
+  if (!tag) return;
+  // Only worth showing when voices actually vary.
+  const show = speaker.available;
+  tag.textContent = show ? voiceLabel() : '';
+  tag.classList.toggle('hidden', !show);
+}
+
 // ---------- data load ----------
 async function load() {
   deck = await fetch('deck.json').then((r) => r.json());
   byId = new Map(deck.map((c) => [c.i, c]));
   settings = await db.getMeta('settings', settings);
+  delete settings.audioSource; // dropped: voices always rotate, no source switch
   fsrs = createFSRS({ requestRetention: settings.retention });
   const cards = await db.allCards();
   states = new Map(cards.map((c) => [c.i, c]));
@@ -105,6 +182,7 @@ async function buildQueue() {
 
 async function startSession() {
   player.unlock();
+  speaker.warmup();
   await buildQueue();
   if (queue.length === 0) { finishSession(); return; }
   showCurrent();
@@ -123,8 +201,12 @@ function showCurrent() {
   $('answer').classList.add('hidden');
   $('grades').classList.add('hidden');
   $('reveal-btn').classList.remove('hidden');
+  $('card').classList.remove('swipeable');
+  resetCard();
   updateProgress();
-  player.playSequence([card.wa], 0);
+  assignAudio(card);
+  updateVoiceTag();
+  playWord(1);
   const nxt = queue[pos + 1];
   if (nxt) player.preload(nxt.wa);
 }
@@ -151,18 +233,103 @@ function reveal() {
   renderSentence(card.s || []);
   $('sentence-en').textContent = card.se || '';
 
-  // interval hints on grade buttons
+  // interval hints on the buttons and on the swipe stamps
   const st = states.get(card.i) || null;
   const preview = fsrs.preview(st);
   document.querySelectorAll('.grade').forEach((btn) => {
     const g = Number(btn.dataset.g);
     btn.querySelector('.g-int').textContent = fmtInterval(preview[g]);
   });
+  for (const g of [AGAIN, GOOD, EASY]) $(`stamp-i-${g}`).textContent = fmtInterval(preview[g]);
 
   $('answer').classList.remove('hidden');
   $('reveal-btn').classList.add('hidden');
   $('grades').classList.remove('hidden');
-  player.playSequence([card.sa], 0);
+  $('card').classList.add('swipeable'); // only now does the card follow the finger
+  playSentence(1);
+}
+
+// ---------- swipe: left = forgot, right = knew it, up = already know ----------
+// The card follows the finger; passing the threshold flings it off and grades.
+// Buttons stay for tapping, keyboard 1-4 still reaches Hard as well.
+const COMMIT_X = 84;   // px of horizontal travel that commits the swipe
+const COMMIT_Y = 96;   // px upward that commits "already know"
+const UP_BIAS = 1.3;   // how much more vertical than horizontal an up-swipe must be
+let drag = null;
+let flinging = false;  // card is flying off; ignore input until the next card is up
+
+function isUp(dx, dy) {
+  return dy < -30 && Math.abs(dy) > Math.abs(dx) * UP_BIAS;
+}
+function paintDrag(dx, dy) {
+  const el = $('card');
+  const up = isUp(dx, dy);
+  const x = up ? dx * 0.2 : dx;
+  const y = up ? dy : dy * 0.25;
+  el.style.transform = `translate(${x}px, ${y}px) rotate(${x / 24}deg)`;
+  const stamp = (sel, v) => {
+    document.querySelector(sel).style.opacity = String(Math.max(0, Math.min(1, v)));
+  };
+  stamp('.st-again', up ? 0 : -dx / COMMIT_X);
+  stamp('.st-good', up ? 0 : dx / COMMIT_X);
+  stamp('.st-easy', up ? -dy / COMMIT_Y : 0);
+}
+function resetCard() {
+  const el = $('card');
+  el.style.transform = '';
+  el.style.opacity = '';
+  for (const s of document.querySelectorAll('.stamp')) s.style.opacity = '0';
+}
+function flyOut(g, dx, dy) {
+  const el = $('card');
+  const up = g === EASY;
+  flinging = true;
+  const x = up ? 0 : Math.sign(dx || 1) * window.innerWidth * 1.15;
+  const y = up ? -window.innerHeight : dy;
+  el.classList.add('flying');
+  el.style.transform = `translate(${x}px, ${y}px) rotate(${x / 24}deg)`;
+  el.style.opacity = '0';
+  setTimeout(async () => {
+    // Freeze animation first: grade() renders the next card, and that must not be
+    // seen sliding back from off-screen.
+    el.classList.remove('flying');
+    el.classList.add('no-anim');
+    await grade(g);
+    resetCard();
+    el.style.transform = 'scale(0.97)';
+    el.style.opacity = '0';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.classList.remove('no-anim');
+      el.style.transform = '';
+      el.style.opacity = '';
+      flinging = false;
+    }));
+  }, 170);
+}
+function onPointerDown(e) {
+  if (!revealed || drag || flinging) return;
+  if (e.target.closest('button')) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, moved: false };
+  $('card').classList.add('dragging');
+  try { $('card').setPointerCapture(e.pointerId); } catch {}
+}
+function onPointerMove(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag.dx = e.clientX - drag.x0;
+  drag.dy = e.clientY - drag.y0;
+  if (Math.abs(drag.dx) > 5 || Math.abs(drag.dy) > 5) drag.moved = true;
+  if (drag.moved) paintDrag(drag.dx, drag.dy);
+}
+function onPointerUp(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const { dx, dy, moved } = drag;
+  drag = null;
+  $('card').classList.remove('dragging');
+  if (!moved) { resetCard(); return; }
+  if (isUp(dx, dy) && -dy >= COMMIT_Y) flyOut(EASY, dx, dy);
+  else if (!isUp(dx, dy) && Math.abs(dx) >= COMMIT_X) flyOut(dx > 0 ? GOOD : AGAIN, dx, dy);
+  else resetCard(); // below the threshold: springs back, nothing graded
 }
 
 async function grade(g) {
@@ -198,6 +365,7 @@ async function grade(g) {
 
 function finishSession() {
   player.stop();
+  speaker.stop();
   const n = sessionSeen.size;
   $('done-sub').textContent = n ? `Повторено карточек: ${n}` : 'Новых и просроченных карточек нет.';
   show('done');
@@ -242,12 +410,21 @@ async function downloadAll() {
 function openSettings() {
   $('set-new').value = settings.newPerDay;
   $('set-ret').value = Math.round(settings.retention * 100);
+  const info = $('voice-info');
+  if (info) info.classList.toggle('hidden', !speaker.available);
+  const vl = $('voice-list');
+  if (vl) {
+    const names = speaker.available ? speaker.mixVoices().map((v) => v.name) : [];
+    vl.textContent = names.length
+      ? `В ротации: запись из колоды, ${names.join(', ')} — поровну по карточкам.`
+      : '';
+  }
   show('settings');
 }
 async function saveSettings() {
   const np = Math.max(0, Math.min(100, Number($('set-new').value) || 0));
   const ret = Math.max(70, Math.min(97, Number($('set-ret').value) || 90)) / 100;
-  settings = { newPerDay: np, retention: ret };
+  settings = { ...settings, newPerDay: np, retention: ret };
   await db.setMeta('settings', settings);
   fsrs = createFSRS({ requestRetention: settings.retention });
 }
@@ -264,25 +441,39 @@ async function resetProgress() {
 function wire() {
   $('start-btn').addEventListener('click', startSession);
   $('reveal-btn').addEventListener('click', reveal);
-  $('study-back').addEventListener('click', () => { player.stop(); renderHome(); });
+  $('study-back').addEventListener('click', () => { player.stop(); speaker.stop(); renderHome(); });
   $('done-home').addEventListener('click', renderHome);
   $('download-btn').addEventListener('click', downloadAll);
   $('settings-btn').addEventListener('click', openSettings);
   $('settings-back').addEventListener('click', async () => { await saveSettings(); renderHome(); });
   $('reset-btn').addEventListener('click', resetProgress);
-  $('replay-word').addEventListener('click', () => player.play(queue[pos]?.wa));
-  $('replay-sentence').addEventListener('click', () => player.play(queue[pos]?.sa));
+  $('replay-word').addEventListener('click', () => playWord(1));
+  $('slow-word').addEventListener('click', () => playWord(SLOW));
+  $('replay-sentence').addEventListener('click', () => playSentence(1));
+  $('slow-sentence').addEventListener('click', () => playSentence(SLOW));
   document.querySelectorAll('.grade').forEach((btn) =>
-    btn.addEventListener('click', () => grade(Number(btn.dataset.g)))
+    btn.addEventListener('click', () => {
+      if (flinging) return;
+      flyOut(Number(btn.dataset.g), btn.dataset.g === '1' ? -1 : 1, 0);
+    })
   );
-  $('card').addEventListener('click', (e) => {
+  const card = $('card');
+  card.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
-    if (!revealed) reveal();
+    if (!revealed && !flinging) reveal();
   });
+  card.addEventListener('pointerdown', onPointerDown);
+  card.addEventListener('pointermove', onPointerMove);
+  card.addEventListener('pointerup', onPointerUp);
+  card.addEventListener('pointercancel', onPointerUp);
   document.addEventListener('keydown', (e) => {
-    if ($('study').classList.contains('hidden')) return;
+    if ($('study').classList.contains('hidden') || flinging) return;
     if (!revealed && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); reveal(); }
-    else if (revealed && ['1', '2', '3', '4'].includes(e.key)) grade(Number(e.key));
+    else if (!revealed) return;
+    else if (e.key === 'ArrowLeft') flyOut(AGAIN, -1, 0);
+    else if (e.key === 'ArrowRight') flyOut(GOOD, 1, 0);
+    else if (e.key === 'ArrowUp') flyOut(EASY, 0, -1);
+    else if (['1', '2', '3', '4'].includes(e.key)) grade(Number(e.key)); // 2 = Hard, keyboard only
   });
 }
 
@@ -290,6 +481,14 @@ function wire() {
 async function boot() {
   wire();
   await load();
+  dealVoiceSlots(audioPool().length);
+  // The system voice list can arrive after boot; re-split the deck once it does.
+  if (window.speechSynthesis && window.speechSynthesis.addEventListener) {
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+      const size = audioPool().length;
+      if (size !== slotsFor) dealVoiceSlots(size);
+    });
+  }
   await renderHome();
   if ('serviceWorker' in navigator) {
     try { await navigator.serviceWorker.register('sw.js'); } catch {}
