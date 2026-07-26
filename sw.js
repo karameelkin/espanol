@@ -1,7 +1,7 @@
 // Service worker: network-first for the app shell (fresh code online, cached offline),
 // cache-first for audio clips (immutable, saved once).
 
-const SHELL_CACHE = 'span-shell-v1';
+const SHELL_CACHE = 'span-shell-v5';
 const AUDIO_CACHE = 'span-audio-v1';
 
 const SHELL = [
@@ -12,6 +12,7 @@ const SHELL = [
   'fsrs.js',
   'db.js',
   'audio.js',
+  'speak.js',
   'deck.json',
   'manifest.webmanifest',
   'icons/icon-180.png',

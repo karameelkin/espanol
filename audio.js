@@ -14,6 +14,14 @@ export function createAudioPlayer(basePath = 'audio/') {
   const url = (name) => basePath + encodeURIComponent(name);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // Slow playback without dropping pitch (so it doesn't sound drunk/bassy).
+  function setRate(rate) {
+    el.playbackRate = rate;
+    el.preservesPitch = true;
+    el.mozPreservesPitch = true;
+    el.webkitPreservesPitch = true;
+  }
+
   // Must run inside a user gesture once, to satisfy iOS autoplay policy.
   function unlock() {
     if (unlocked) return;
@@ -36,7 +44,7 @@ export function createAudioPlayer(basePath = 'audio/') {
   }
 
   // Play one clip fully. Resolves on `ended`, on error, or when superseded.
-  function playOnce(name) {
+  function playOnce(name, rate = 1) {
     if (killCurrent) killCurrent(); // cleanly end whatever was playing
     return new Promise((resolve) => {
       const finish = () => {
@@ -51,24 +59,25 @@ export function createAudioPlayer(basePath = 'audio/') {
       try { el.pause(); } catch {}
       el.src = url(name);
       el.currentTime = 0;
+      setRate(rate);
       const p = el.play();
       if (p && p.catch) p.catch(() => finish()); // autoplay blocked -> continue flow
     });
   }
 
   // Single clip; cancels any running sequence.
-  function play(name) {
+  function play(name, rate = 1) {
     seqToken++;
-    return name ? playOnce(name) : Promise.resolve();
+    return name ? playOnce(name, rate) : Promise.resolve();
   }
 
   // Clips back to back, each fully, with an optional gap between them.
-  async function playSequence(names, gapMs = 250) {
+  async function playSequence(names, gapMs = 250, rate = 1) {
     const my = ++seqToken;
     const list = names.filter(Boolean);
     for (let idx = 0; idx < list.length; idx++) {
       if (my !== seqToken) return;
-      await playOnce(list[idx]);
+      await playOnce(list[idx], rate);
       if (my !== seqToken) return;
       if (idx < list.length - 1 && gapMs) await sleep(gapMs);
     }
