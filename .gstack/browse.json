@@ -1,9 +1,0 @@
-{
-  "pid": 12306,
-  "port": 16777,
-  "token": "8d0a3865-7215-4db5-ba3b-69ff7adb6095",
-  "startedAt": "2026-07-26T15:06:22.572Z",
-  "serverPath": "/Users/dima/.claude/skills/gstack/browse/src/server.ts",
-  "mode": "launched",
-  "configHash": "303a7eeccc03078b"
-}
